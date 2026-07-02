@@ -26,6 +26,10 @@ RUN mkdir -p /data/output
 ENV GENERIC_TIMEZONE=Asia/Jakarta
 ENV TZ=Asia/Jakarta
 
+# Startup script
+COPY start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
 # Run as node user
 WORKDIR /data
 RUN chown -R node:node /data
@@ -33,5 +37,4 @@ USER node
 
 EXPOSE 5678
 
-# ponytail: ENTRYPOINT is immune to Railway's startCommand override (which only overrides CMD)
-ENTRYPOINT ["sh", "-c", "export N8N_PORT=${PORT:-5678} && exec n8n"]
+ENTRYPOINT ["/usr/local/bin/start.sh"]
