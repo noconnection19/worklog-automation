@@ -34,4 +34,4 @@ USER node
 # n8n default port
 EXPOSE 5678
 
-CMD ["sh", "-c", "N8N_PORT=${PORT:-5678} n8n start"]
+CMD ["sh", "-c", "N8N_PORT=${PORT:-5678} n8n"]
