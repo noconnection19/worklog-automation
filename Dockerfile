@@ -9,7 +9,7 @@ RUN apk add --no-cache python3 py3-pip sqlite && \
 # Copy project files into container
 COPY database/ /data/database/
 COPY python/ /data/python/
-COPY "Contoh_Working Report - Rakarizal Muhammad Zidan - Jun 2026.xlsx" /data/python/template.xlsx
+COPY ["Contoh_Working Report - Rakarizal Muhammad Zidan - Jun 2026.xlsx", "/data/python/template.xlsx"]
 
 # Init DB (will be overwritten by volume on Railway, but provides fallback)
 RUN python3 /data/database/init_db.py
