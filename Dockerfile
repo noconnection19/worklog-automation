@@ -2,8 +2,9 @@ FROM n8nio/n8n:latest
 
 USER root
 
-# ponytail: alpine-based n8n image, so apk not apt
-RUN apk add --no-cache python3 py3-pip sqlite && \
+# Install python, pip, sqlite3
+RUN apt-get update && apt-get install -y python3 python3-pip sqlite3 && \
+    rm -rf /var/lib/apt/lists/* && \
     pip3 install --break-system-packages openpyxl
 
 # Copy project files into container
