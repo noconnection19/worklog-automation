@@ -1,0 +1,266 @@
+{
+  "name": "WorkLog Automation",
+  "nodes": [
+    {
+      "id": "trigger-telegram",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "position": [0, 0],
+      "typeVersion": 1,
+      "parameters": {
+        "updates": ["message"]
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "id": "parse-message",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "position": [250, 0],
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Parse Telegram message into worklog fields.\n// Format: free-text activity, with optional override lines:\n//   in HH:MM\n//   out HH:MM\n//   place XXXX\n//   break XXXX\n\nconst text = $input.first().json.message.text || '';\nconst lines = text.split('\\n').map(l => l.trim()).filter(Boolean);\n\nlet check_in = null;\nlet check_out = null;\nlet place = null;\nlet break_time = null;\nconst activityLines = [];\n\nfor (const line of lines) {\n  const lower = line.toLowerCase();\n  if (lower.startsWith('in ') && /\\d{1,2}[:.:]\\d{2}/.test(lower)) {\n    check_in = line.substring(3).trim().replace('.', ':');\n  } else if (lower.startsWith('out ') && /\\d{1,2}[:.:]\\d{2}/.test(lower)) {\n    check_out = line.substring(4).trim().replace('.', ':');\n  } else if (lower.startsWith('place ')) {\n    place = line.substring(6).trim();\n  } else if (lower.startsWith('break ')) {\n    break_time = line.substring(6).trim();\n  } else {\n    activityLines.push(line);\n  }\n}\n\nconst activity = activityLines.join('; ') || 'No activity recorded';\n\nreturn [{\n  json: {\n    activity,\n    check_in,\n    check_out,\n    place,\n    break_time,\n    chat_id: $input.first().json.message.chat.id\n  }\n}];"
+      }
+    },
+    {
+      "id": "set-defaults",
+      "name": "Set Defaults",
+      "type": "n8n-nodes-base.set",
+      "position": [500, 0],
+      "typeVersion": 3,
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "work_date",
+              "name": "work_date",
+              "type": "string",
+              "value": "={{ $now.format('yyyy-MM-dd') }}"
+            },
+            {
+              "id": "check_in",
+              "name": "check_in",
+              "type": "string",
+              "value": "={{ $json.check_in || '08:00' }}"
+            },
+            {
+              "id": "check_out",
+              "name": "check_out",
+              "type": "string",
+              "value": "={{ $json.check_out || '17:30' }}"
+            },
+            {
+              "id": "break_time",
+              "name": "break_time",
+              "type": "string",
+              "value": "={{ $json.break_time || '1 Hour' }}"
+            },
+            {
+              "id": "place",
+              "name": "place",
+              "type": "string",
+              "value": "={{ $json.place || 'TMMIN Sunter 1' }}"
+            },
+            {
+              "id": "activity",
+              "name": "activity",
+              "type": "string",
+              "value": "={{ $json.activity }}"
+            },
+            {
+              "id": "chat_id",
+              "name": "chat_id",
+              "type": "string",
+              "value": "={{ $json.chat_id }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ai-improve",
+      "name": "AI Improve",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [750, 0],
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_API_BASE + '/chat/completions' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'openai/Qwen3.6-35B', messages: [{ role: 'user', content: 'Rewrite this brief work note into a concise, professional activity description. Do NOT add any facts that are not in the original. Keep it to one sentence.\\n\\nOriginal: ' + $json.activity }], max_tokens: 100, temperature: 0.3 }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "OpenAI Compatible API"
+        }
+      }
+    },
+    {
+      "id": "merge-ai",
+      "name": "Merge AI Result",
+      "type": "n8n-nodes-base.set",
+      "position": [1000, 0],
+      "typeVersion": 3,
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ai_activity",
+              "name": "ai_activity",
+              "type": "string",
+              "value": "={{ $json.choices?.[0]?.message?.content || $json.activity }}"
+            }
+          ]
+        },
+        "options": {
+          "keepOnlySet": false
+        }
+      }
+    },
+    {
+      "id": "sqlite-insert",
+      "name": "SQLite Insert",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [1250, 0],
+      "typeVersion": 1,
+      "parameters": {
+        "command": "={{ 'sqlite3 /data/database/worklog.db \"INSERT INTO work_logs(work_date, check_in, check_out, break_time, place, activity, ai_activity) VALUES(\\'' + $json.work_date + '\\', \\'' + $json.check_in + '\\', \\'' + $json.check_out + '\\', \\'' + $json.break_time + '\\', \\'' + $json.place.replace(/'/g, \"''\") + '\\', \\'' + $json.activity.replace(/'/g, \"''\") + '\\', \\'' + ($json.ai_activity || '').replace(/'/g, \"''\") + '\\');\"' }}"
+      }
+    },
+    {
+      "id": "telegram-reply",
+      "name": "Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1500, 0],
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "={{ $('Parse Message').first().json.chat_id }}",
+        "text": "={{ '✅ Worklog saved!\\n📅 ' + $('Set Defaults').first().json.work_date + '\\n⏰ ' + $('Set Defaults').first().json.check_in + ' - ' + $('Set Defaults').first().json.check_out + '\\n📍 ' + $('Set Defaults').first().json.place + '\\n📝 ' + ($('Merge AI Result').first().json.ai_activity || $('Set Defaults').first().json.activity) }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "id": "cron-monthly",
+      "name": "Monthly Cron",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [0, 300],
+      "typeVersion": 1,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "generate-excel",
+      "name": "Generate Excel",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [300, 300],
+      "typeVersion": 1,
+      "parameters": {
+        "command": "cd /data && python python/generate_excel.py"
+      }
+    },
+    {
+      "id": "read-excel",
+      "name": "Read Output File",
+      "type": "n8n-nodes-base.readBinaryFiles",
+      "position": [600, 300],
+      "typeVersion": 1,
+      "parameters": {
+        "fileSelector": "/data/output/*.xlsx"
+      }
+    },
+    {
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [900, 300],
+      "typeVersion": 2,
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_USER }}",
+        "toEmail": "={{ $env.EMAIL_TO }}",
+        "ccEmail": "={{ $env.EMAIL_CC }}",
+        "subject": "={{ 'Working Report - ' + ($env.EMPLOYEE_NAME || 'Employee') + ' - ' + $now.minus({months: 1}).toFormat('MMM yyyy') }}",
+        "emailType": "text",
+        "message": "Dear Sir/Madam,\n\nPlease find attached my working report for the previous month.\n\nBest regards.",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "Gmail SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{"node": "Parse Message", "type": "main", "index": 0}]]
+    },
+    "Parse Message": {
+      "main": [[{"node": "Set Defaults", "type": "main", "index": 0}]]
+    },
+    "Set Defaults": {
+      "main": [[{"node": "AI Improve", "type": "main", "index": 0}]]
+    },
+    "AI Improve": {
+      "main": [[{"node": "Merge AI Result", "type": "main", "index": 0}]]
+    },
+    "Merge AI Result": {
+      "main": [[{"node": "SQLite Insert", "type": "main", "index": 0}]]
+    },
+    "SQLite Insert": {
+      "main": [[{"node": "Telegram Reply", "type": "main", "index": 0}]]
+    },
+    "Monthly Cron": {
+      "main": [[{"node": "Generate Excel", "type": "main", "index": 0}]]
+    },
+    "Generate Excel": {
+      "main": [[{"node": "Read Output File", "type": "main", "index": 0}]]
+    },
+    "Read Output File": {
+      "main": [[{"node": "Send Email", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Jakarta"
+  }
+}

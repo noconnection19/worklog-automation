@@ -1,0 +1,9 @@
+.env
+.git
+.github
+.agents
+docs
+output
+database/*.db
+__pycache__
+*.md
