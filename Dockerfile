@@ -23,10 +23,11 @@ COPY ["Contoh_Working Report - Rakarizal Muhammad Zidan - Jun 2026.xlsx", "/data
 # Init DB + output dir
 RUN python3 /data/database/init_db.py && mkdir -p /data/output
 
-# Fix permissions
-RUN chown -R node:node /data
+# Wrapper entrypoint: maps Railway PORT -> N8N_PORT
+COPY start.sh /start.sh
+RUN chmod +x /start.sh && chown -R node:node /data
 
 USER node
 WORKDIR /data
 
-# ponytail: no CMD/ENTRYPOINT — official n8n image handles startup correctly
+ENTRYPOINT ["/start.sh"]
