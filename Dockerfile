@@ -31,7 +31,7 @@ WORKDIR /data
 RUN chown -R node:node /data
 USER node
 
-# n8n default port
 EXPOSE 5678
 
-CMD ["sh", "-c", "N8N_PORT=${PORT:-5678} n8n"]
+# ponytail: ENTRYPOINT is immune to Railway's startCommand override (which only overrides CMD)
+ENTRYPOINT ["sh", "-c", "export N8N_PORT=${PORT:-5678} && exec n8n"]
