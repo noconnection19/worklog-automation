@@ -1,40 +1,32 @@
-FROM node:22-alpine
+FROM alpine:3.20 AS alpine
+
+FROM n8nio/n8n:latest
 
 USER root
 
-# Install Python, pip, sqlite3
-RUN apk add --no-cache python3 py3-pip sqlite
+# Restore apk package manager from Alpine (n8n image is Alpine-based but stripped)
+COPY --from=alpine /sbin/apk /sbin/apk
+COPY --from=alpine /etc/apk /etc/apk
+COPY --from=alpine /lib/libapk* /lib/
+COPY --from=alpine /usr/lib/libzstd* /usr/lib/
 
-# Install openpyxl for Python script
-RUN pip3 install --break-system-packages openpyxl
+# Install Python + sqlite CLI
+RUN apk add --no-cache python3 py3-pip sqlite \
+    && pip3 install --break-system-packages openpyxl \
+    && rm -f /sbin/apk  # cleanup: don't keep apk in prod image
 
-# Install n8n globally
-RUN npm install -g n8n@latest --omit=dev
-
-# Copy project files into container
+# Copy project files
 COPY database/ /data/database/
 COPY python/ /data/python/
 COPY ["Contoh_Working Report - Rakarizal Muhammad Zidan - Jun 2026.xlsx", "/data/python/template.xlsx"]
 
-# Init DB
-RUN python3 /data/database/init_db.py
+# Init DB + output dir
+RUN python3 /data/database/init_db.py && mkdir -p /data/output
 
-# Create output dir
-RUN mkdir -p /data/output
-
-# Set environment
-ENV GENERIC_TIMEZONE=Asia/Jakarta
-ENV TZ=Asia/Jakarta
-
-# Startup script
-COPY start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
-
-# Run as node user
-WORKDIR /data
+# Fix permissions
 RUN chown -R node:node /data
+
 USER node
+WORKDIR /data
 
-EXPOSE 5678
-
-ENTRYPOINT ["/usr/local/bin/start.sh"]
+# ponytail: no CMD/ENTRYPOINT — official n8n image handles startup correctly
